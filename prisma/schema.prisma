@@ -1,0 +1,350 @@
+// Radio Streaming Platform - Prisma Schema
+// Based on AzuraCast architecture
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USERS & AUTHENTICATION ====================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String
+  role          String    @default("user") // admin, station_manager, dj, user
+  avatar        String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  stations      Station[]
+  media         Media[]
+  playlists     Playlist[]
+  schedules     Schedule[]
+  apiKeys       ApiKey[]
+  activityLogs  ActivityLog[]
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  name        String
+  key         String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissions String   // JSON string with permissions
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  entity    String
+  entityId  String?
+  details   String?  // JSON string
+  ip        String?
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+  @@index([entity, entityId])
+}
+
+// ==================== STATIONS ====================
+
+model Station {
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
+  description     String?
+  genre           String?
+  logo            String?
+  isActive        Boolean   @default(true)
+  isPublic        Boolean   @default(true)
+  
+  // Streaming Configuration
+  streamUrl       String?
+  streamPort      Int       @default(8000)
+  streamMount     String    @default("/stream")
+  streamFormat    String    @default("mp3") // mp3, aac, ogg, flac
+  bitrate         Int       @default(128) // 64, 128, 192, 256, 320
+  
+  // AutoDJ Configuration
+  enableAutoDj    Boolean   @default(true)
+  crossfade       Float     @default(2.0) // seconds
+  normalize       Boolean   @default(true)
+  
+  // Statistics
+  listenersCurrent Int      @default(0)
+  listenersPeak   Int       @default(0)
+  listenersMax    Int       @default(100)
+  
+  // Owner
+  ownerId         String
+  owner           User      @relation(fields: [ownerId], references: [id])
+  
+  // Timestamps
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  media           Media[]
+  playlists       Playlist[]
+  schedules       Schedule[]
+  streamEvents    StreamEvent[]
+  listenerStats   ListenerStat[]
+  nowPlaying      NowPlaying?
+  
+  @@index([ownerId])
+  @@index([slug])
+}
+
+// ==================== MEDIA LIBRARY ====================
+
+model Media {
+  id            String    @id @default(cuid())
+  stationId     String
+  station       Station   @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  
+  // File Information
+  title         String
+  artist        String?
+  album         String?
+  genre         String?
+  year          Int?
+  
+  // File Details
+  filename      String
+  originalName  String
+  filePath      String
+  fileSize      Int       // in bytes
+  duration      Float     // in seconds
+  format        String    // mp3, wav, flac, ogg, aac
+  bitrate       Int?      // kbps
+  sampleRate    Int?      // Hz
+  
+  // Metadata
+  artwork       String?   // URL to artwork image
+  isrc          String?   // International Standard Recording Code
+  
+  // Playback Info
+  playCount     Int       @default(0)
+  lastPlayedAt  DateTime?
+  
+  // Upload Info
+  uploadedById  String
+  uploadedBy    User      @relation(fields: [uploadedById], references: [id])
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  playlistItems PlaylistItem[]
+  scheduleItems ScheduleItem[]
+  
+  @@index([stationId])
+  @@index([artist])
+  @@index([album])
+}
+
+// ==================== PLAYLISTS ====================
+
+model Playlist {
+  id            String    @id @default(cuid())
+  stationId     String
+  station       Station   @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  
+  name          String
+  description   String?
+  type          String    @default("standard") // standard, scheduled, once
+  weight        Int       @default(1) // for rotation priority
+  
+  // Playback Settings
+  shuffle       Boolean   @default(true)
+  loop          Boolean   @default(true)
+  avoidDuplicates Boolean @default(true)
+  
+  // Scheduling
+  startTime     String?   // HH:mm format
+  endTime       String?   // HH:mm format
+  daysOfWeek    String?   // JSON array: ["monday", "tuesday", ...]
+  
+  // Owner
+  createdById   String
+  createdBy     User      @relation(fields: [createdById], references: [id])
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  items         PlaylistItem[]
+  schedules     ScheduleItem[]
+  
+  @@index([stationId])
+}
+
+model PlaylistItem {
+  id          String    @id @default(cuid())
+  playlistId  String
+  playlist    Playlist  @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  mediaId     String
+  media       Media     @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  
+  order       Int       @default(0)
+  weight      Int       @default(1)
+  
+  createdAt   DateTime  @default(now())
+  
+  @@index([playlistId])
+  @@index([mediaId])
+}
+
+// ==================== SCHEDULING ====================
+
+model Schedule {
+  id            String    @id @default(cuid())
+  stationId     String
+  station       Station   @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  
+  name          String
+  description   String?
+  
+  // Schedule Type
+  type          String    @default("playlist") // playlist, live, prerecorded
+  isRecurring   Boolean   @default(false)
+  
+  // Date/Time
+  startDate     DateTime
+  endDate       DateTime?
+  startTime     String    // HH:mm
+  endTime       String?   // HH:mm
+  
+  // Recurrence
+  daysOfWeek    String?   // JSON array for weekly recurrence
+  daysOfMonth   String?   // JSON array for monthly recurrence
+  
+  // Created by
+  createdById   String
+  createdBy     User      @relation(fields: [createdById], references: [id])
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  items         ScheduleItem[]
+  
+  @@index([stationId])
+  @@index([startDate])
+}
+
+model ScheduleItem {
+  id          String    @id @default(cuid())
+  scheduleId  String
+  schedule    Schedule  @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  
+  // Can be a media file or playlist
+  itemType    String    // media, playlist
+  mediaId     String?
+  media       Media?    @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  playlistId  String?
+  playlist    Playlist? @relation(fields: [playlistId], references: [id], onDelete: SetNull)
+  
+  order       Int       @default(0)
+  
+  createdAt   DateTime  @default(now())
+  
+  @@index([scheduleId])
+}
+
+// ==================== STREAMING & ANALYTICS ====================
+
+model NowPlaying {
+  id            String    @id @default(cuid())
+  stationId     String    @unique
+  station       Station   @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  
+  // Current Track
+  mediaId       String?
+  title         String
+  artist        String?
+  album         String?
+  artwork       String?
+  duration      Float?
+  elapsedTime   Float?    // seconds played
+  
+  // Stream Info
+  isLive        Boolean   @default(false)
+  djName        String?
+  
+  // Timestamps
+  startedAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@index([stationId])
+}
+
+model StreamEvent {
+  id            String    @id @default(cuid())
+  stationId     String
+  station       Station   @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  
+  eventType     String    // track_start, track_end, live_connect, live_disconnect
+  mediaId       String?
+  title         String?
+  artist        String?
+  
+  djName        String?
+  listenerCount Int?
+  
+  createdAt     DateTime  @default(now())
+  
+  @@index([stationId])
+  @@index([createdAt])
+}
+
+model ListenerStat {
+  id              String    @id @default(cuid())
+  stationId       String
+  station         Station   @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  
+  // Time-based stats
+  timestamp       DateTime  @default(now())
+  listeners       Int       @default(0)
+  listenersUnique Int       @default(0)
+  
+  // Time period for aggregation
+  period          String    @default("minute") // minute, hour, day, month
+  
+  createdAt       DateTime  @default(now())
+  
+  @@index([stationId])
+  @@index([timestamp])
+}
+
+// ==================== SETTINGS ====================
+
+model Setting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String   // JSON string for complex values
+  description String?
+  category    String   @default("general") // general, streaming, storage, api
+  
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  
+  @@index([category])
+}
