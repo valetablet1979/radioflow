@@ -8,12 +8,9 @@ WORKDIR /app
 
 # Copiar archivos de dependencias
 COPY package.json bun.lock* package-lock.json* yarn.lock* ./
-RUN \
-  if [ -f yarn.lock ]; then yarn --frozen-lockfile; \
-  elif [ -f package-lock.json ]; then npm ci; \
-  elif [ -f bun.lock ]; then bun install --frozen-lockfile; \
-  else echo "Lockfile not found." && exit 1; \
-  fi
+
+# Instalar dependencias - usar npm si no hay package-lock.json
+RUN npm install --legacy-peer-deps
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder
@@ -62,11 +59,11 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/prisma ./prisma
 
-# Copiar base de datos SQLite
-COPY --from=builder /app/db ./db
+# Crear directorio para base de datos y uploads
+RUN mkdir -p /app/db /app/uploads && chown -R nextjs:nodejs /app/db /app/uploads
 
-# Crear directorio para uploads
-RUN mkdir -p /app/uploads && chown -R nextjs:nodejs /app/uploads
+# Copiar base de datos SQLite inicial si existe
+COPY --from=builder /app/db ./db
 
 USER nextjs
 
