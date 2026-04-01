@@ -1,0 +1,89 @@
+# RadioFlow - Docker Compose para Producción
+version: '3.8'
+
+services:
+  # Aplicación Next.js
+  radioflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DATABASE_URL: file:/app/db/custom.db
+        NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-radioflow-secret-key-change-in-production}
+        NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+    container_name: radioflow-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/db/custom.db
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-radioflow-secret-key-change-in-production}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+    volumes:
+      # Persistir base de datos
+      - radioflow-db:/app/db
+      # Persistir uploads
+      - radioflow-uploads:/app/uploads
+    networks:
+      - radioflow-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Caddy - Reverse Proxy con SSL automático
+  caddy:
+    image: caddy:2-alpine
+    container_name: radioflow-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - radioflow-network
+    depends_on:
+      radioflow:
+        condition: service_healthy
+
+  # Servicio de Streaming de Radio (Icecast)
+  icecast:
+    image: infiniteproject/icecast:latest
+    container_name: radioflow-icecast
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ICECAST_SOURCE_PASSWORD=${ICECAST_SOURCE_PASSWORD:-hackme}
+      - ICECAST_RELAY_PASSWORD=${ICECAST_RELAY_PASSWORD:-hackme}
+      - ICECAST_ADMIN_PASSWORD=${ICECAST_ADMIN_PASSWORD:-hackme}
+      - ICECAST_ADMIN_USERNAME=admin
+      - ICECAST_ADMIN_EMAIL=admin@radioflow.com
+      - ICECAST_LOCATION=RadioFlow
+      - ICECAST_HOSTNAME=radioflow
+    volumes:
+      - icecast-logs:/var/log/icecast
+    networks:
+      - radioflow-network
+
+networks:
+  radioflow-network:
+    driver: bridge
+
+volumes:
+  radioflow-db:
+    driver: local
+  radioflow-uploads:
+    driver: local
+  caddy-data:
+    driver: local
+  caddy-config:
+    driver: local
+  icecast-logs:
+    driver: local

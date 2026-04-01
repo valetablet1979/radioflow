@@ -1,23 +1,48 @@
-:81 {
-	@transform_port_query {
-		query XTransformPort=*
-	}
+# RadioFlow - Caddyfile para Producción
+# Configuración de reverse proxy con SSL automático
 
-	handle @transform_port_query {
-		reverse_proxy localhost:{query.XTransformPort} {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-		}
-	}
+# Configuración para dominio (descomentar y cambiar dominio)
+# radio.tudominio.com {
+#     # SSL automático con Let's Encrypt
+#     encode gzip zstd
+#     
+#     # Reverse proxy a la aplicación Next.js
+#     reverse_proxy radioflow:3000 {
+#         header_up Host {host}
+#         header_up X-Forwarded-For {remote_host}
+#         header_up X-Forwarded-Proto {scheme}
+#         header_up X-Real-IP {remote_host}
+#     }
+#     
+#     # Logs
+#     log {
+#         output file /var/log/caddy/radioflow.log
+#         format json
+#     }
+# }
 
-	handle {
-		reverse_proxy localhost:3000 {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-		}
-	}
+# Configuración para IP directa (sin dominio)
+{
+    email admin@radioflow.com
 }
+
+:80 {
+    encode gzip zstd
+    
+    # Reverse proxy a la aplicación Next.js
+    reverse_proxy radioflow:3000 {
+        header_up Host {host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Real-IP {remote_host}
+    }
+    
+    # Logs
+    log {
+        output stdout
+        format json
+    }
+}
+
+# Streaming Icecast en puerto 8000 (manejado por el container de icecast)
+# No necesita configuración en Caddy, el puerto está expuesto directamente
